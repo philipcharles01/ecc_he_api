@@ -1,7 +1,7 @@
-from flask import flask
+from flask import Flask
 
-app = Flask(_name_)
+app = Flask(__name__)
 
 @app.route("/")
 def home():
-	return "Flask ECC + HE API is working"
+    return "Flask ECC + HE API is working!"
