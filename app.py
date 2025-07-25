@@ -1,35 +1,56 @@
 from flask import Flask, request, jsonify
-from tinyec import registry
-import secrets
+import boto3
+import uuid
+from Crypto.PublicKey import ECC
+import json
+import random
 
 app = Flask(__name__)
 
-# ECC encryption
-curve = registry.get_curve('brainpoolP256r1')
+# Fake homomorphic encryption function (demo only)
+def simple_homomorphic_encrypt(value, key):
+    return value + key
 
-def ecc_keygen():
-    private_key = secrets.randbelow(curve.field.n)
-    public_key = private_key * curve.g
-    return private_key, public_key
+def simple_homomorphic_decrypt(ciphertext, key):
+    return ciphertext - key
 
-@app.route("/", methods=["GET"])
+@app.route('/')
 def home():
-    return "Flask ECC + HE API is working!"
+    return "Flask ECC + Homomorphic Encryption API is running!"
 
-@app.route("/encrypt", methods=["POST"])
-def encrypt():
-    data = request.json.get("data", "")
-    
-    # ECC Key Generation
-    priv_key, pub_key = ecc_keygen()
-    pub = {'x': pub_key.x, 'y': pub_key.y}
-    
-    # Fake Homomorphic encryption (demo purpose)
-    encrypted_data = ''.join([chr(ord(char) + 1) for char in data])
+@app.route('/generate_keys', methods=['GET'])
+def generate_keys():
+    key = ECC.generate(curve='P-256')
+    private_key = key.export_key(format='PEM')
+    public_key = key.public_key().export_key(format='PEM')
 
     return jsonify({
-        "original": data,
-        "encrypted": encrypted_data,
-        "ecc_public_key": pub,
-        "ecc_private_key": priv_key
+        'private_key': private_key,
+        'public_key': public_key
     })
+
+@app.route('/encrypt', methods=['POST'])
+def encrypt_data():
+    data = request.get_json()
+    value = int(data.get('value', 0))
+    key = random.randint(1, 100)
+
+    encrypted = simple_homomorphic_encrypt(value, key)
+
+    return jsonify({
+        'encrypted_value': encrypted,
+        'homo_key': key  # This key is needed to decrypt
+    })
+
+@app.route('/decrypt', methods=['POST'])
+def decrypt_data():
+    data = request.get_json()
+    ciphertext = int(data.get('encrypted_value', 0))
+    key = int(data.get('homo_key', 0))
+
+    decrypted = simple_homomorphic_decrypt(ciphertext, key)
+
+    return jsonify({
+        'decrypted_value': decrypted
+    })
+
