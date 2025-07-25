@@ -1,4 +1,2 @@
-flask
-pycryptodome
-phe
+Flask
 gunicorn
