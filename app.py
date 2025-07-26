@@ -4,10 +4,11 @@ import uuid
 from Crypto.PublicKey import ECC
 import random
 import os
+import base64
 
 app = Flask(__name__)
 
-# ✅ AWS S3 Configuration (Secure via Environment Variables)
+# ✅ AWS S3 Configuration (use your environment variables)
 s3 = boto3.client('s3',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
@@ -15,12 +16,26 @@ s3 = boto3.client('s3',
 )
 BUCKET_NAME = 'ecc-key-store-123'
 
-# 🔐 Simulated Homomorphic Encryption
+# 🔐 Simulated Homomorphic Encryption for strings & numbers
 def simple_homomorphic_encrypt(value, key):
-    return value + key
+    try:
+        num = float(value)
+        return num + key
+    except ValueError:
+        encoded = base64.b64encode(value.encode()).decode()
+        return f"{encoded}::KEY::{key}"
 
 def simple_homomorphic_decrypt(ciphertext, key):
-    return ciphertext - key
+    if isinstance(ciphertext, (int, float)):
+        return ciphertext - key
+    try:
+        encoded, _, k = ciphertext.partition("::KEY::")
+        if int(k) == key:
+            return base64.b64decode(encoded.encode()).decode()
+        else:
+            return "Key mismatch"
+    except Exception:
+        return "Invalid format"
 
 @app.route('/')
 def home():
@@ -39,7 +54,7 @@ def generate_keys():
 @app.route('/encrypt', methods=['POST'])
 def encrypt_data():
     data = request.get_json()
-    value = int(data.get('value', 0))
+    value = str(data.get('value', ''))
 
     ecc_key = ECC.generate(curve='P-256')
     private_key = ecc_key.export_key(format='PEM')
@@ -61,7 +76,7 @@ def encrypt_data():
 @app.route('/decrypt', methods=['POST'])
 def decrypt_data():
     data = request.get_json()
-    ciphertext = int(data.get('encrypted_value', 0))
+    ciphertext = data.get('encrypted_value', '')
     key = int(data.get('homo_key', 0))
 
     decrypted_value = simple_homomorphic_decrypt(ciphertext, key)
