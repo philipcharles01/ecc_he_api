@@ -8,15 +8,15 @@ import base64
 
 app = Flask(__name__)
 
-# ✅ AWS S3 Configuration (use your environment variables)
+# ✅ AWS S3 Configuration
 s3 = boto3.client('s3',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
     region_name='us-east-1'
 )
-BUCKET_NAME = 'ecc-key-store-123'
+BUCKET_NAME = 'ecc-key-store-123'  # Replace with your actual bucket name
 
-# 🔐 Simulated Homomorphic Encryption for strings & numbers
+# 🔐 Simple Homomorphic Encryption
 def simple_homomorphic_encrypt(value, key):
     try:
         num = float(value)
@@ -25,31 +25,9 @@ def simple_homomorphic_encrypt(value, key):
         encoded = base64.b64encode(value.encode()).decode()
         return f"{encoded}::KEY::{key}"
 
-def simple_homomorphic_decrypt(ciphertext, key):
-    if isinstance(ciphertext, (int, float)):
-        return ciphertext - key
-    try:
-        encoded, _, k = ciphertext.partition("::KEY::")
-        if int(k) == key:
-            return base64.b64decode(encoded.encode()).decode()
-        else:
-            return "Key mismatch"
-    except Exception:
-        return "Invalid format"
-
 @app.route('/')
 def home():
     return "✅ Flask ECC + Homomorphic Encryption API is running!"
-
-@app.route('/generate_keys', methods=['GET'])
-def generate_keys():
-    key = ECC.generate(curve='P-256')
-    private_key = key.export_key(format='PEM')
-    public_key = key.public_key().export_key(format='PEM')
-    return jsonify({
-        'private_key': private_key,
-        'public_key': public_key
-    })
 
 @app.route('/encrypt', methods=['POST'])
 def encrypt_data():
@@ -64,23 +42,17 @@ def encrypt_data():
     encrypted_value = simple_homomorphic_encrypt(value, homo_key)
 
     key_id = str(uuid.uuid4())
-    s3.put_object(Bucket=BUCKET_NAME, Key=key_id, Body=private_key)
-
-    return jsonify({
-        'encrypted_value': encrypted_value,
-        'homo_key': homo_key,
-        'public_key': public_key,
-        'key_id': key_id
-    })
-
-@app.route('/decrypt', methods=['POST'])
-def decrypt_data():
-    data = request.get_json()
-    ciphertext = data.get('encrypted_value', '')
-    key = int(data.get('homo_key', 0))
-
-    decrypted_value = simple_homomorphic_decrypt(ciphertext, key)
-    return jsonify({'decrypted_value': decrypted_value})
+    try:
+        s3.put_object(Bucket=BUCKET_NAME, Key=key_id, Body=private_key)
+        return jsonify({
+            'encrypted_value': encrypted_value,
+            'homo_key': homo_key,
+            'public_key': public_key,
+            'key_id': key_id,
+            'status': 'Private key stored successfully'
+        })
+    except Exception as e:
+        return jsonify({'error': f"Failed to store private key: {str(e)}"}), 500
 
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
