@@ -34,20 +34,28 @@ def encrypt_data():
     data = request.get_json()
     value = str(data.get('value', ''))
 
+    # ✅ Generate ECC Keys
     ecc_key = ECC.generate(curve='P-256')
     private_key = ecc_key.export_key(format='PEM')
     public_key = ecc_key.public_key().export_key(format='PEM')
 
+    # ✅ Homomorphic Encryption
     homo_key = random.randint(1, 100)
     encrypted_value = simple_homomorphic_encrypt(value, homo_key)
 
+    # ✅ Generate a unique key ID
     key_id = str(uuid.uuid4())
+
     try:
+        # ✅ Store the private key in S3 bucket using key_id
         s3.put_object(Bucket=BUCKET_NAME, Key=key_id, Body=private_key)
+
+        # ✅ Send private key + all data to MIT App Inventor
         return jsonify({
             'encrypted_value': encrypted_value,
             'homo_key': homo_key,
             'public_key': public_key,
+            'private_key': private_key,  # ✅ Now included in the response
             'key_id': key_id,
             'status': 'Private key stored successfully'
         })
