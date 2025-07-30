@@ -5,6 +5,7 @@ from Crypto.PublicKey import ECC
 import random
 import os
 import base64
+import json  # ✅ For creating JSON structure
 
 app = Flask(__name__)
 
@@ -46,28 +47,38 @@ def encrypt_data():
     # ✅ Generate a unique key ID
     key_id = str(uuid.uuid4())
 
-    try:
-        # ✅ Store the private key in S3 bucket using key_id
-        s3.put_object(Bucket=BUCKET_NAME, Key=key_id, Body=private_key)
+    # ✅ Save private key as JSON
+    key_json = json.dumps({"private_key": private_key})
 
-        # ✅ Send private key + all data to MIT App Inventor
+    try:
+        # ✅ Store private key in S3 as JSON file named: key_id.json
+        s3.put_object(
+            Bucket=BUCKET_NAME,
+            Key=f"{key_id}.json",       # 🔑 Suffix .json here
+            Body=key_json,              # 🧾 JSON body
+            ContentType='application/json'
+        )
+
+        # ✅ Send response back to MIT App Inventor
         return jsonify({
             'encrypted_value': encrypted_value,
             'homo_key': homo_key,
             'public_key': public_key,
-            'private_key': private_key,  # ✅ Now included in the response
+            'private_key': private_key,
             'key_id': key_id,
-            'status': 'Private key stored successfully'
+            'status': 'Private key stored successfully as JSON'
         })
+
     except Exception as e:
         return jsonify({'error': f"Failed to store private key: {str(e)}"}), 500
 
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
     try:
-        response = s3.get_object(Bucket=BUCKET_NAME, Key=key_id)
-        private_key = response['Body'].read().decode('utf-8')
-        return jsonify({'private_key': private_key})
+        # ✅ Fetch JSON file using key_id
+        response = s3.get_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json")
+        key_data = json.loads(response['Body'].read().decode('utf-8'))
+        return jsonify({'private_key': key_data['private_key']})
     except Exception as e:
         return jsonify({'error': str(e)}), 404
 
