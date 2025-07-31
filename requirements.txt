@@ -1,4 +1,5 @@
-flask
-pycryptodome
-boto3
-gunicorn
+Flask>=2.2
+boto3>=1.26
+gunicorn>=20.1
+eciespy>=0.4.6
+pycryptodome>=3.23.0
