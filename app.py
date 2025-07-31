@@ -82,5 +82,17 @@ def get_private_key(key_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 404
 
+# ✅ DECRYPT ENCRYPTED VALUE USING HOMOMORPHIC KEY
+@app.route('/decrypt', methods=['POST'])
+def decrypt_data():
+    data = request.get_json()
+    try:
+        encrypted_value = float(data.get('encrypted_value'))
+        homo_key = int(data.get('homo_key'))
+        decrypted_value = encrypted_value - homo_key
+        return jsonify({'decrypted_value': decrypted_value})
+    except Exception as e:
+        return jsonify({'error': f"❌ Decryption failed: {str(e)}"}), 400
+
 if __name__ == '__main__':
     app.run(debug=True)
