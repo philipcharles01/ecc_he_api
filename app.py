@@ -2,13 +2,9 @@ from flask import Flask, request, jsonify
 import boto3, uuid, os, base64, json, random
 from ecies import encrypt, decrypt
 from ecies.utils import generate_key
-import logging
 
 app = Flask(__name__)
 app.config['DEBUG'] = True
-
-# Enable debug-level logging
-logging.basicConfig(level=logging.DEBUG)
 
 # Initialize S3 client
 s3 = boto3.client(
@@ -17,14 +13,8 @@ s3 = boto3.client(
     aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
     region_name='us-east-1'
 )
-BUCKET_NAME = 'ecc-key-store-123'
 
-@app.before_request
-def log_request():
-    app.logger.debug(f"--- Request to {request.path} ---")
-    app.logger.debug(f"Headers: {dict(request.headers)}")
-    raw = request.get_data().decode(errors='ignore')
-    app.logger.debug(f"Raw body: {raw}")
+BUCKET_NAME = 'ecc-key-store-123'
 
 @app.route('/')
 def home():
@@ -38,30 +28,29 @@ def encrypt_data():
 
     value = str(data.get('value', ''))
 
-    # Generate ECC keypair
-    key = generate_key()
-    sk_hex = key.to_hex()
-    pk_hex = key.public_key.format(True).hex()
+    # ECC key generation
+    priv_key = generate_key()
+    pub_key = priv_key.public_key
+
+    sk_hex = priv_key.to_hex()
+    pk_hex = pub_key.format(True).hex()
 
     # ECC encryption
-    cipher_bytes = encrypt(bytes.fromhex(pk_hex), value.encode())
+    cipher_bytes = encrypt(pub_key.format(True), value.encode())
     ecc_encrypted_b64 = base64.b64encode(cipher_bytes).decode()
 
-    # Homomorphic-style encryption (simple obfuscation)
+    # Homomorphic encryption (simple: value + key)
     homo_key = random.randint(1, 100)
     try:
         encrypted_value = float(value) + homo_key
     except:
         encrypted_value = base64.b64encode(value.encode()).decode() + "::KEY::" + str(homo_key)
 
-    # Upload private key to S3
+    # Save private key to S3
     key_id = str(uuid.uuid4())
-    s3.put_object(
-        Bucket=BUCKET_NAME,
-        Key=f"{key_id}.json",
-        Body=json.dumps({'private_key': sk_hex}),
-        ContentType='application/json'
-    )
+    key_data = {'private_key': sk_hex}
+    s3.put_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json",
+                  Body=json.dumps(key_data), ContentType='application/json')
 
     return jsonify({
         'key_id': key_id,
@@ -75,8 +64,8 @@ def encrypt_data():
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
     try:
-        obj = s3.get_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json")
-        content = json.loads(obj['Body'].read().decode())
+        resp = s3.get_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json")
+        content = json.loads(resp['Body'].read().decode())
         return jsonify({'private_key': content['private_key']})
     except Exception as e:
         return jsonify({'error': f'❌ Key not found: {e}'}), 404
@@ -88,14 +77,13 @@ def decrypt_with_private_key():
         return jsonify({'error': 'Invalid or missing JSON'}), 400
 
     enc_b64 = data.get('ecc_encrypted_value', '')
-    private_key_hex = data.get('private_key', '').strip()
+    private_key_hex = data.get('private_key', '')
 
     try:
         encrypted_bytes = base64.b64decode(enc_b64)
-        decrypted_bytes = decrypt(private_key_hex, encrypted_bytes)
-        return jsonify({'decrypted_value': decrypted_bytes.decode()})
+        plaintext_bytes = decrypt(private_key_hex, encrypted_bytes)
+        return jsonify({'decrypted_value': plaintext_bytes.decode()})
     except Exception as e:
-        app.logger.exception("ECC Decryption failed")
         return jsonify({'error': f'❌ ECC Decryption failed: {e}'}), 400
 
 @app.route('/decrypt', methods=['POST'])
