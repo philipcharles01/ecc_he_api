@@ -6,7 +6,7 @@ from ecies import encrypt, decrypt
 app = Flask(__name__)
 app.config['DEBUG'] = True
 
-# ✅ AWS S3 Configuration
+# Initialize S3 client
 s3 = boto3.client(
     's3',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
@@ -15,7 +15,7 @@ s3 = boto3.client(
 )
 BUCKET_NAME = 'ecc-key-store-123'
 
-# ✅ Debugging Requests
+# Log every request header and raw body
 @app.before_request
 def log_request():
     app.logger.debug(f"--- Request to {request.path} ---")
@@ -27,7 +27,6 @@ def log_request():
 def home():
     return "✅ ECC + Homomorphic Encryption API is working!"
 
-# ✅ Encrypt and Store Keys
 @app.route('/encrypt', methods=['POST'])
 def encrypt_data():
     data = request.get_json(silent=True)
@@ -35,15 +34,13 @@ def encrypt_data():
         return jsonify({'error': 'Invalid JSON'}), 400
     value = str(data.get('value', ''))
 
-    sk = PrivateKey()  # Automatically generates keypair
+    sk = PrivateKey('secp256k1')
     sk_hex = sk.to_hex()
-    pk_hex = sk.public_key.to_hex(compressed=True)
+    pk_hex = sk.public_key.to_hex(True)
 
-    # ECC Encryption (base64)
     cipher_bytes = encrypt(pk_hex, value.encode())
     ecc_encrypted_b64 = base64.b64encode(cipher_bytes).decode()
 
-    # Fake Homomorphic Encryption (simulated)
     homo_key = random.randint(1, 100)
     try:
         encrypted_value = float(value) + homo_key
@@ -64,7 +61,6 @@ def encrypt_data():
         'status': '✅ Encrypted and stored'
     })
 
-# ✅ Retrieve Private Key from S3
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
     try:
@@ -74,38 +70,28 @@ def get_private_key(key_id):
     except Exception as e:
         return jsonify({'error': f'❌ Key not found: {e}'}), 404
 
-# ✅ ECC Decryption
 @app.route('/decrypt_with_private_key', methods=['POST'])
 def decrypt_with_private_key():
     data = request.get_json(silent=True)
     if not data:
         return jsonify({'error': 'Invalid or missing JSON'}), 400
 
-    enc_b64 = data.get('ecc_encrypted_value', '').strip()
+    enc_b64 = data.get('ecc_encrypted_value', '')
     private_key_hex = data.get('private_key', '').strip()
+    app.logger.debug(f"Private key received raw: '{private_key_hex}', length={len(private_key_hex)}")
 
-    app.logger.debug(f"Private key: {private_key_hex[:10]}... len={len(private_key_hex)}")
-    app.logger.debug(f"Encrypted value (base64): {enc_b64[:10]}...")
+    if len(private_key_hex) % 2 != 0:
+        private_key_hex = private_key_hex.zfill(len(private_key_hex) + 1)
+        app.logger.debug(f"Padded private key: '{private_key_hex}', new length={len(private_key_hex)}")
 
     try:
-        # Validate input
-        if not enc_b64 or not private_key_hex:
-            return jsonify({'error': 'Missing encrypted value or private key'}), 400
-
-        # Decode base64 to bytes
         encrypted_bytes = base64.b64decode(enc_b64)
-
-        # ECC Decryption
         decrypted_bytes = decrypt(private_key_hex, encrypted_bytes)
-        plaintext = decrypted_bytes.decode()
-
-        return jsonify({'decrypted_value': plaintext})
-
+        return jsonify({'decrypted_value': decrypted_bytes.decode()})
     except Exception as e:
-        app.logger.exception("❌ ECC Decryption failed")
-        return jsonify({'error': f'❌ ECC Decryption failed: {str(e)}'}), 400
+        app.logger.exception("ECC Decryption failed")
+        return jsonify({'error': f'❌ ECC Decryption failed: {e}'}), 400
 
-# ✅ Homomorphic Decryption (simulated)
 @app.route('/decrypt', methods=['POST'])
 def decrypt_homomorphic():
     data = request.get_json(silent=True)
@@ -118,6 +104,5 @@ def decrypt_homomorphic():
     except Exception as e:
         return jsonify({'error': f'❌ Homomorphic Decryption Failed: {e}'}), 400
 
-# ✅ Main
 if __name__ == '__main__':
     app.run(debug=True)
