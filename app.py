@@ -2,12 +2,11 @@ from flask import Flask, request, jsonify
 import boto3, uuid, os, base64, json, random
 from ecies.keys import PrivateKey
 from ecies import encrypt, decrypt
-from datetime import datetime
 
 app = Flask(__name__)
 app.config['DEBUG'] = True
 
-# ====== AWS S3 CONFIG ======
+# ================= AWS S3 SETUP =================
 s3 = boto3.client(
     's3',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
@@ -16,10 +15,10 @@ s3 = boto3.client(
 )
 BUCKET_NAME = 'ecc-key-store-123'
 
-# ====== Store latest sensor data in memory ======
-latest_sensor_data = {}
+# Store latest sensor data in memory (for demo)
+latest_sensor_data = {"temperature": None, "humidity": None, "soil": None}
 
-# ====== DEBUG LOGGING ======
+# ================= LOGGING =================
 @app.before_request
 def log_request():
     app.logger.debug(f"--- Request to {request.path} ---")
@@ -27,56 +26,12 @@ def log_request():
     raw = request.get_data().decode(errors='ignore')
     app.logger.debug(f"Raw body: {raw}")
 
-# ====== BASIC TEST ROUTE ======
+# ================= HOME =================
 @app.route('/')
 def home():
-    return "✅ ECC + Sensor API is running!"
+    return "✅ ECC + Homomorphic Encryption API is working!"
 
-# =================================================
-# ========== ESP32 DATA HANDLING ROUTES ===========
-# =================================================
-@app.route('/update', methods=['POST'])
-def update_data():
-    """
-    ESP32 will send: { "temp": 25.4, "hum": 60, "soil": 45 }
-    Optionally encrypt before storing
-    """
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({'error': 'Invalid JSON'}), 400
-
-    # Optional: ECC encryption of each value
-    sk = PrivateKey.generate()
-    pk_hex = sk.public_key.to_hex(True)
-
-    encrypted_data = {}
-    for key, value in data.items():
-        value_str = str(value)
-        cipher_bytes = encrypt(pk_hex, value_str.encode())
-        encrypted_data[key] = base64.b64encode(cipher_bytes).decode()
-
-    # Store in memory with timestamp (plaintext & encrypted)
-    global latest_sensor_data
-    latest_sensor_data = {
-        "timestamp": datetime.utcnow().isoformat(),
-        "plain": data,
-        "public_key": pk_hex,
-        "encrypted": encrypted_data,
-        "private_key": sk.to_hex()  # In practice, store this securely
-    }
-
-    return jsonify({"status": "✅ Data received", "public_key": pk_hex})
-
-@app.route('/get', methods=['GET'])
-def get_data():
-    """MIT App Inventor fetches latest readings"""
-    if not latest_sensor_data:
-        return jsonify({'error': 'No data available'}), 404
-    return jsonify(latest_sensor_data)
-
-# =================================================
-# ========== ENCRYPTION/DECRYPTION ROUTES =========
-# =================================================
+# ================= ENCRYPT =================
 @app.route('/encrypt', methods=['POST'])
 def encrypt_data():
     data = request.get_json(silent=True)
@@ -84,7 +39,7 @@ def encrypt_data():
         return jsonify({'error': 'Invalid JSON'}), 400
     value = str(data.get('value', ''))
 
-    sk = PrivateKey('secp256k1')
+    sk = PrivateKey.generate()
     sk_hex = sk.to_hex()
     pk_hex = sk.public_key.to_hex(True)
 
@@ -111,6 +66,7 @@ def encrypt_data():
         'status': '✅ Encrypted and stored'
     })
 
+# ================= GET PRIVATE KEY =================
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
     try:
@@ -120,6 +76,7 @@ def get_private_key(key_id):
     except Exception as e:
         return jsonify({'error': f'❌ Key not found: {e}'}), 404
 
+# ================= ECC DECRYPT =================
 @app.route('/decrypt_with_private_key', methods=['POST'])
 def decrypt_with_private_key():
     data = request.get_json(silent=True)
@@ -142,6 +99,7 @@ def decrypt_with_private_key():
         app.logger.exception("ECC Decryption failed")
         return jsonify({'error': f'❌ ECC Decryption failed: {e}'}), 400
 
+# ================= HOMOMORPHIC DECRYPT =================
 @app.route('/decrypt', methods=['POST'])
 def decrypt_homomorphic():
     data = request.get_json(silent=True)
@@ -154,5 +112,27 @@ def decrypt_homomorphic():
     except Exception as e:
         return jsonify({'error': f'❌ Homomorphic Decryption Failed: {e}'}), 400
 
+# ================= NEW: ESP32 SEND SENSOR DATA =================
+@app.route('/update', methods=['POST'])
+def update_data():
+    global latest_sensor_data
+    data = request.get_json(silent=True)
+    if not data:
+        return jsonify({"error": "Invalid JSON"}), 400
+
+    latest_sensor_data = {
+        "temperature": data.get("temperature"),
+        "humidity": data.get("humidity"),
+        "soil": data.get("soil")
+    }
+    app.logger.info(f"Updated sensor data: {latest_sensor_data}")
+    return jsonify({"status": "✅ Data updated", "data": latest_sensor_data})
+
+# ================= NEW: MIT APP INVENTOR GET SENSOR DATA =================
+@app.route('/get', methods=['GET'])
+def get_data():
+    return jsonify(latest_sensor_data)
+
+# ================= RUN =================
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8000, debug=True)
+    app.run(debug=True, host="0.0.0.0", port=8000)
