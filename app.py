@@ -7,6 +7,7 @@ app = Flask(__name__)
 app.config['DEBUG'] = True
 
 # ================= AWS S3 SETUP =================
+# These should be set in Render → Environment Variables
 s3 = boto3.client(
     's3',
     aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
@@ -15,7 +16,7 @@ s3 = boto3.client(
 )
 BUCKET_NAME = 'ecc-key-store-123'
 
-# Store latest sensor data in memory (for demo)
+# Store latest sensor data in memory (for MIT App Inventor)
 latest_sensor_data = {"temperature": None, "humidity": None, "soil": None}
 
 # ================= LOGGING =================
@@ -39,19 +40,23 @@ def encrypt_data():
         return jsonify({'error': 'Invalid JSON'}), 400
     value = str(data.get('value', ''))
 
+    # ECC key generation
     sk = PrivateKey.generate()
     sk_hex = sk.to_hex()
     pk_hex = sk.public_key.to_hex(True)
 
+    # ECC encryption
     cipher_bytes = encrypt(pk_hex, value.encode())
     ecc_encrypted_b64 = base64.b64encode(cipher_bytes).decode()
 
+    # Homomorphic encryption (simple offset method)
     homo_key = random.randint(1, 100)
     try:
         encrypted_value = float(value) + homo_key
     except:
         encrypted_value = base64.b64encode(value.encode()).decode() + "::KEY::" + str(homo_key)
 
+    # Store private key in S3
     key_id = str(uuid.uuid4())
     key_data = {'private_key': sk_hex}
     s3.put_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json",
@@ -133,6 +138,7 @@ def update_data():
 def get_data():
     return jsonify(latest_sensor_data)
 
-# ================= RUN =================
+# ================= RENDER DEPLOYMENT ENTRY =================
 if __name__ == '__main__':
-    app.run(debug=True, host="0.0.0.0", port=8000)
+    port = int(os.environ.get("PORT", 5000))  # Render uses dynamic port
+    app.run(debug=True, host="0.0.0.0", port=port)
