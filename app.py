@@ -15,7 +15,7 @@ s3 = boto3.client(
 )
 BUCKET_NAME = 'ecc-key-store-123'
 
-# Store latest sensor data in memory (for MIT App Inventor)
+# Store latest sensor data in memory
 latest_sensor_data = {"temperature": None, "humidity": None, "soil": None}
 
 # ================= LOGGING =================
@@ -35,11 +35,11 @@ def home():
 @app.route('/encrypt', methods=['POST'])
 def encrypt_data():
     try:
-        data = request.get_json(force=True)  # force=True avoids None if content-type is off
-        value = str(data.get('value', '')).replace('\r', '').replace('\n', '\\n')  # escape newlines
+        data = request.get_json(force=True)
+        value = str(data.get('value', '')).replace('\r', '').replace('\n', '\\n')
 
         # ECC key generation
-        sk = PrivateKey.generate()
+        sk = PrivateKey()  # generates new private key
         sk_hex = sk.to_hex()
         pk_hex = sk.public_key.to_hex(True)
 
@@ -47,7 +47,7 @@ def encrypt_data():
         cipher_bytes = encrypt(pk_hex, value.encode())
         ecc_encrypted_b64 = base64.b64encode(cipher_bytes).decode()
 
-        # Homomorphic encryption (simple offset method)
+        # Homomorphic encryption
         homo_key = random.randint(1, 100)
         try:
             encrypted_value = float(value) + homo_key
@@ -71,19 +71,21 @@ def encrypt_data():
             'ecc_encrypted_value': ecc_encrypted_b64,
             'status': '✅ Encrypted and stored'
         })
+
     except Exception as e:
         app.logger.exception("Encryption Failed")
         return jsonify({'error': f'❌ Encryption Failed: {e}'}), 500
 
-# ================= GET PRIVATE KEY =================
+# ================= GET PRIVATE KEY BY KEY ID =================
 @app.route('/get_private_key/<key_id>', methods=['GET'])
 def get_private_key(key_id):
+    """Retrieve private key from AWS S3 using key_id"""
     try:
         resp = s3.get_object(Bucket=BUCKET_NAME, Key=f"{key_id}.json")
         content = json.loads(resp['Body'].read().decode())
         return jsonify({'private_key': content['private_key']})
     except Exception as e:
-        return jsonify({'error': f'❌ Key not found: {e}'}), 404
+        return jsonify({'error': f'❌ Key not found or S3 error: {e}'}), 404
 
 # ================= ECC DECRYPT =================
 @app.route('/decrypt_with_private_key', methods=['POST'])
@@ -134,6 +136,11 @@ def update_data():
 # ================= MIT APP INVENTOR GET SENSOR DATA =================
 @app.route('/get', methods=['GET'])
 def get_data():
+    if latest_sensor_data["temperature"] is None and \
+       latest_sensor_data["humidity"] is None and \
+       latest_sensor_data["soil"] is None:
+        return jsonify({"error": "❌ No data sent from ESP32, check connection"})
+    
     return jsonify(latest_sensor_data)
 
 # ================= RENDER DEPLOYMENT ENTRY =================
